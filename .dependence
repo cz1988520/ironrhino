@@ -19,7 +19,7 @@
 +spring-data-commons
 +spring-data-keyvalue
 +spring-data-redis
-+jedis
+-jedis
 -ironrhino-redis-config
 -eaxy
 -struts2-spring-plugin
@@ -38,3 +38,12 @@
 +resilience4j-circuitbreaker
 +micrometer-core
 +micrometer-registry-influx
++lettuce-core
++netty-buffer
++netty-codec
++netty-common
++netty-handler
++netty-transport
++netty-resolver
++reactive-streams
++reactor-core

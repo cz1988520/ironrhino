@@ -9,6 +9,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -20,18 +21,20 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisPassword;
 import org.springframework.data.redis.connection.RedisSentinelConfiguration;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
-import org.springframework.data.redis.connection.jedis.JedisClientConfiguration;
-import org.springframework.data.redis.connection.jedis.JedisClientConfiguration.JedisClientConfigurationBuilder;
-import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration.LettuceClientConfigurationBuilder;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettucePoolingClientConfiguration;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
+import io.lettuce.core.ClientOptions;
+import io.lettuce.core.SocketOptions;
 import lombok.Getter;
 import lombok.Setter;
-import redis.clients.jedis.JedisPoolConfig;
 
 @Configuration
 @Profile({ DUAL, CLUSTER, CLOUD, "redis" })
@@ -89,20 +92,24 @@ public class RedisConfiguration {
 	@Bean
 	@Primary
 	public RedisConnectionFactory redisConnectionFactory() {
-		JedisClientConfigurationBuilder builder = JedisClientConfiguration.builder()
-				.connectTimeout(Duration.ofMillis(getConnectTimeout()))
-				.readTimeout(Duration.ofMillis(getReadTimeout()));
-		if (isUseSsl())
-			builder.useSsl();
+		ClientOptions clientOptions = ClientOptions.builder()
+				.socketOptions(SocketOptions.builder().connectTimeout(Duration.ofMillis(getConnectTimeout())).build())
+				.build();
+		LettuceClientConfigurationBuilder builder;
 		if (isUsePool()) {
-			JedisPoolConfig poolConfig = new JedisPoolConfig();
+			GenericObjectPoolConfig<?> poolConfig = new GenericObjectPoolConfig<>();
 			poolConfig.setMaxTotal(getMaxTotal());
 			poolConfig.setMaxIdle(getMaxIdle());
 			poolConfig.setMinIdle(getMinIdle());
-			builder.usePooling().poolConfig(poolConfig);
+			builder = LettucePoolingClientConfiguration.builder().poolConfig(poolConfig);
+		} else {
+			builder = LettuceClientConfiguration.builder();
 		}
-		JedisClientConfiguration clientConfiguration = builder.build();
-		RedisConnectionFactory redisConnectionFactory;
+		if (isUseSsl())
+			builder.useSsl();
+		LettuceClientConfiguration clientConfiguration = builder.clientOptions(clientOptions)
+				.commandTimeout(Duration.ofMillis(getReadTimeout())).build();
+		LettuceConnectionFactory redisConnectionFactory;
 		int database = getDatabase();
 		String password = getPassword();
 		if (getSentinels() != null) {
@@ -111,12 +118,12 @@ public class RedisConfiguration {
 			sentinelConfiguration.setDatabase(database);
 			if (StringUtils.isNotBlank(password))
 				sentinelConfiguration.setPassword(RedisPassword.of(password));
-			redisConnectionFactory = new JedisConnectionFactory(sentinelConfiguration, clientConfiguration);
+			redisConnectionFactory = new LettuceConnectionFactory(sentinelConfiguration, clientConfiguration);
 		} else if (getClusterNodes() != null) {
 			RedisClusterConfiguration clusterConfiguration = new RedisClusterConfiguration(getClusterNodes());
 			if (StringUtils.isNotBlank(password))
 				clusterConfiguration.setPassword(RedisPassword.of(password));
-			redisConnectionFactory = new JedisConnectionFactory(clusterConfiguration, clientConfiguration);
+			redisConnectionFactory = new LettuceConnectionFactory(clusterConfiguration, clientConfiguration);
 		} else {
 			String hostName = getHostName();
 			if (StringUtils.isNotBlank(getHost()))
@@ -126,7 +133,7 @@ public class RedisConfiguration {
 			standaloneConfiguration.setDatabase(database);
 			if (StringUtils.isNotBlank(password))
 				standaloneConfiguration.setPassword(RedisPassword.of(password));
-			redisConnectionFactory = new JedisConnectionFactory(standaloneConfiguration, clientConfiguration);
+			redisConnectionFactory = new LettuceConnectionFactory(standaloneConfiguration, clientConfiguration);
 		}
 		return redisConnectionFactory;
 	}
